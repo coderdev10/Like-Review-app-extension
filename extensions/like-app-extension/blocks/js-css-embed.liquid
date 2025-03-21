@@ -1,0 +1,22 @@
+<!-- App Embed Block -->
+{% comment %}
+This block injects the JavaScript and CSS for the like button into the store theme when enabled.
+{% endcomment %}
+
+<link rel="stylesheet" href="{{ 'like-button.css' | asset_url }}">
+<script src="{{ 'like-button.js' | asset_url }}" defer></script>
+<script>
+
+{% if customer %}
+var customer_id = {{customer.id}}
+{% else %}
+var customer_id = null;
+{% endif %}
+</script>
+{% schema %}
+{
+  "name": "Like App",
+  "target": "body",
+  "settings": []
+}
+{% endschema %}

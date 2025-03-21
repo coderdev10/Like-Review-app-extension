@@ -1,0 +1,201 @@
+{% if customer %}
+    <!-- This is the container where the liked products will be displayed -->
+    <div class="common-heading">
+        {% if block.settings.title != blank %}
+            <h2>{{ block.settings.title }}</h2>
+        {% endif %}
+    </div>
+    <div id="liked-products-container">
+        <!-- Initially this will show a loading message or No liked products message -->
+        <p>Loading liked products...</p>
+    </div>
+  
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const customerId = "{{ customer.id }}"; // Get customer ID from Liquid
+        
+            function loadLikedProducts() {
+                if (!customerId) {
+                    document.getElementById('liked-products-container').innerHTML = 'Please log in to see your liked products.';
+                    return;
+                }
+        
+                // Use FormData for request
+                const formData = new FormData();
+                formData.append("shop", Shopify.shop);
+                formData.append("customer_id", customerId);
+        
+                const requestData = {
+                    shop: Shopify.shop,
+                    customer_id: customerId
+                };
+        
+                // Fetch the user's selected template setting from backend
+                fetch('https://likeapp.magento-development.asia/api/settings/get-template', {
+                    method: 'POST',
+                    body: JSON.stringify(requestData)
+                })
+                .then(response => response.json())
+                .then(settingData => {
+                    console.log("Fetched Template Setting:", settingData);
+        
+                    const selectedTemplate = settingData.template || 'grid_product_list'; // Default template
+                    const container = document.getElementById('liked-products-container');
+        
+                    // Remove previous template classes
+                    container.classList.remove('grid_product_list', 'app_product_list', 'app_compact_product_list');
+        
+                    // Correctly map the class to the template setting
+                    switch (selectedTemplate) {
+                        case 'app_product_list':
+                            container.classList.add("app_product_list");
+                            break;
+                        case 'app_compact_product_list':
+                            container.classList.add("app_compact_product_list");
+                            break;
+                        default:
+                            container.classList.add("grid_product_list");
+                            break;
+                    }
+        
+                    console.log("Final Applied Classes:", container.classList);
+        
+                    // Fetch liked product IDs
+                    fetch('https://likeapp.magento-development.asia/api/like/get-liked', {
+                        method: 'POST',
+                        body: formData,
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success && data.liked_products.length > 0) {
+                            let productHtml = '';
+        
+                            // Fetch product details for each liked product
+                            const productRequests = data.liked_products.map(productId => {
+                                const formData = new FormData();
+                                formData.append('shop', Shopify.shop);
+                                formData.append('product_id', productId);
+        
+                                return fetch('https://likeapp.magento-development.asia/api/product/details', {
+                                    method: 'POST',
+                                    body: formData,
+                                })
+                                .then(response => response.json())
+                                .then(productData => {
+                                    if (productData.success) {
+                                        const product = productData.product;
+        
+                                        return `
+                                            <div class="liked-product" data-product-id="${productId}"> 
+                                                <div class="inner-wrp">
+                                                    <button class="app_btn dislike_btn">delete</button>
+                                                    <div class="imgwrap">
+                                                        <a href="${product.url}" target="_blank">
+                                                            <img src="${product.image ? product.image : 'https://likeapp.magento-development.asia/assets/global/images/placeholder.webp'}" 
+                                                            alt="${product.title}" 
+                                                            style="width: 100px; height: auto;">
+                                                        </a>
+                                                    </div>
+                                                    <div class="prd_info">
+                                                        <h3 class="product-title"><a href="${product.url}" target="_blank">${product.title}</a></h3>
+                                                        <span class="price">${product.price}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        `;
+                                    } else {
+                                        return `<p>Error loading product details for ID ${productId}</p>`;
+                                    }
+                                })
+                                .catch(error => {
+                                    console.error("Error fetching product details:", error);
+                                    return `<p>Error loading product details.</p>`;
+                                });
+                            });
+        
+                            // Wait for all product details to be fetched before updating the HTML
+                            Promise.all(productRequests)
+                                .then(productContents => {
+                                    productHtml = productContents.join('');
+                                    container.innerHTML = productHtml;
+        
+                                    // Add event listeners to dislike buttons
+                                    document.querySelectorAll('.dislike_btn').forEach(button => {
+                                        button.addEventListener('click', function () {
+                                            const likedProduct = button.closest('.liked-product');
+                                            const productId = likedProduct.getAttribute('data-product-id');
+                                            removeLikedProduct(productId, likedProduct);
+                                        });
+                                    });
+                                });
+                        } else {
+                            container.innerHTML = 'No liked products available.';
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error fetching liked products:', error);
+                        container.innerHTML = 'Error loading liked products.';
+                    });
+                })
+                .catch(error => {
+                    console.error('Error fetching template setting:', error);
+                });
+            }
+        
+            function removeLikedProduct(productId, likedProductElement) {
+                console.log("Removing liked product with ID:", productId);
+        
+                const requestData = {
+                    shop: Shopify.shop,
+                    customer_id: customerId,
+                    product_id: productId
+                };
+        
+                fetch('https://likeapp.magento-development.asia/api/like/toggle', {
+                    method: 'POST',
+                    body: JSON.stringify(requestData)
+                })
+                .then(response => response.json())
+                .then(data => {
+                    console.log("Response from remove API:", data);
+                    if (data.success) {
+                        // Remove the product from the DOM
+                        likedProductElement.remove();
+        
+                        // Check if there are any remaining liked products
+                        const container = document.getElementById('liked-products-container');
+                        if (container.children.length === 0) {
+                            container.innerHTML = '<p>No liked products available.</p>';
+                        }
+                    } else {
+                        console.error('Error removing liked product:', data.error);
+                    }
+                })
+                .catch(error => console.error('Error removing liked product:', error));
+            }
+        
+            loadLikedProducts();
+        });
+        
+    </script>
+    
+
+  {% else %}
+    <p>Please log in to see your liked products.</p>
+  {% endif %}
+  
+  {% schema %}
+  {
+      "name": "My list",
+      "class":"wtsapp_my_list_page",
+      "target": "section",
+      "settings": [
+        {
+        "type":"text",
+        "id":"title",
+        "label":"Page Heading"
+        }
+      ]
+  }
+  {% endschema %}
+  
